@@ -1,0 +1,6 @@
+**/ebin/
+ebin/
+./deps
+./rel/wstest
+rel/wstest
+deps
