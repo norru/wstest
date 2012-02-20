@@ -1,0 +1,8 @@
+#Sun Feb 19 00:53:08 GMT 2012
+backend_version=R14B
+eclipse.preferences.version=1
+external_includes=
+external_modules=
+include_dirs=
+output_dir=ebin
+source_dirs=apps/wstest/src;

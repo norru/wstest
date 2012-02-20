@@ -1,0 +1,12 @@
+{application, wstest,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { wstest_app, []}},
+  {env, []}
+ ]}.
