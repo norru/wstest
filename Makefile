@@ -24,7 +24,7 @@ relclean:
 stage : rel
 	cd rel/wstest/lib && \
 	rm -rf wstest-* && \
-	ln -s ../../../apps/wstest
+	ln -s ../../../apps/wstest wstest-1
 
 test:
 	./rebar skip_deps=true eunit

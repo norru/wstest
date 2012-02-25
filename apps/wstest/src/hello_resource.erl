@@ -12,5 +12,5 @@ charsets_provided(RD, Ctx) ->
     {[{"utf-8", fun(C) -> C end}], RD, Ctx}.
 
 to_html(RD, Ctx) ->
-    C = "<html><head></head><body>Hello, world!</body></html>",
+    C = "<html><head></head><body><h1>Hello, world!</h1>From Webmachine/Mochiweb</body></html>",
     {C, RD, Ctx}.
