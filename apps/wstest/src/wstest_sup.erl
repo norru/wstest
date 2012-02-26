@@ -11,18 +11,26 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Web = {
+    Webmachine = {
 		webmachine_mochiweb,
-		{webmachine_mochiweb, start, [load_config()]},
+		{webmachine_mochiweb, start, [load_webmachine_config()]},
 		permanent, 5000, worker, [webmachine_mochiweb]
 	},
 
-    {ok, {{one_for_one, 5, 10}, [Web]}}.
+	MochiOptions = [{ip, "0.0.0.0"}, {port, 8001}],
+	
+    Mochionly = {
+		wstest_web,
+		{wstest_web, start, [MochiOptions]},
+		permanent, 5000, worker, [wstest_web]
+	},
+	
+    {ok, {{one_for_one, 5, 10}, [Mochionly, Webmachine]}}.
 
-load_config() ->
+load_webmachine_config() ->
     
     Ip = get_app_env(web_ip, "0.0.0.0"),
-    Port = get_app_env(web_port, 8000),
+    Port = get_app_env(webmachine_port, 8000),
     LogDir = get_app_env(log_dir, "priv/log"),
 
     {ok, Dispatch} = file:consult(filename:join(code:priv_dir(wstest), "dispatch.conf")),
