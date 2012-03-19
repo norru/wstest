@@ -5,3 +5,4 @@ external_modules=
 include_dirs=deps
 output_dir=apps/wstest/ebin
 source_dirs=apps/wstest/src
+
