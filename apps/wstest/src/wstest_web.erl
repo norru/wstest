@@ -32,8 +32,8 @@ produces(Req) ->
 produces(_,[]) ->
 	[];
 produces(Req,[{MimeType, ContentType} | T]) ->
-	case Req:accepts_content_type(ContentType) of
-		true -> MimeType;
+	case Req:accepts_content_type(MimeType) of
+		true -> ContentType;
 		_ -> produces(Req, T)
 	end.
 
