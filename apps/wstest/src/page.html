@@ -1,0 +1,89 @@
+<html>
+<head>
+    <title>MEh</title>
+
+    <style type="text/css" media="screen">
+      body{ background:#000;color:#fff;font-size:.9em; }
+      .msg{ background:#aaa;padding:.2em; border-bottom:1px #000 solid}
+      .old{ background-color:#246499;}
+      .new{ background-color:#3B9957;}
+    .error{ background-color:#992E36;}
+    </style>
+
+</head>
+<body>
+    <div id="messages">
+        <div class="msg old">
+            Stream demo
+        </div>
+        <div id="messagebar" class="msg new">
+            ...
+        </div>
+        <canvas id="map" width="512" height="512"></canvas>  
+        <div>
+		    <script type="text/javascript" charset="utf-8">
+				var source = new EventSource('feed');
+				var map = document.getElementById("map");  
+ 				var ctx = map.getContext("2d");  
+				
+ 				function relMouseCoords(currentElement, event){
+ 				    var totalOffsetX = 0;
+ 				    var totalOffsetY = 0;
+ 				    var canvasX = 0;
+ 				    var canvasY = 0;
+
+ 				    do{
+ 				        totalOffsetX += currentElement.offsetLeft;
+ 				        totalOffsetY += currentElement.offsetTop;
+ 				    }
+ 				    while(currentElement = currentElement.offsetParent)
+
+ 				    canvasX = event.pageX - totalOffsetX;
+ 				    canvasY = event.pageY - totalOffsetY;
+
+ 				    return {x:canvasX, y:canvasY}
+ 				}
+ 				
+ 				map.addEventListener('click', function(e) {
+ 					var point = relMouseCoords(map, e);
+ 					
+ 					console.log(point);
+ 					
+ 					var xmlHttp = new XMLHttpRequest();
+ 					xmlHttp.open("POST", "add", true);
+ 					xmlHttp.setRequestHeader("Content-Type", "application/json");
+ 					xmlHttp.send(JSON.stringify(point));
+				}, false);
+ 				
+				source.addEventListener('message', function(e) {
+		  			var points = JSON.parse(e.data);
+		  			document.getElementById("messagebar").innerHTML = points.length + " points";
+		  			drawPoints(points);
+				}, false);
+				
+				source.addEventListener('open', function(e) {
+				}, false);
+				
+				source.addEventListener('error', function(e) {
+				  console.log(e);
+				}, false);
+				
+				function clear() {
+					ctx.fillStyle = '#fff';
+					ctx.fillRect (0, 0, map.width, map.height);
+				}
+				
+				function drawPoints(points) {
+					clear();
+					ctx.strokeStyle = '#000';
+					points.forEach(function(point){
+						ctx.save();
+						ctx.translate(point.x, point.y);
+						ctx.strokeRect(-2, -2, 2, 2);
+						ctx.restore();
+					});
+				}
+		    </script>
+	    </div>
+    </body>
+</html>

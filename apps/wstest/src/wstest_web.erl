@@ -1,13 +1,19 @@
 -module(wstest_web).
--export([start/1, stop/0, handler/1, start_greet/0, process/5]).
+-export([start/1, stop/0]).
 
-mime_types() ->
-	[{"text/plain", text}, {"application/xml", xml}, {"text/xml", xml}, {"text/html", html}].
+mime_types() ->[
+				{"text/plain", text},
+				{"application/xml", xml},
+				{"text/xml", xml}, 
+				{"application/json", json},
+				{"text/html", html}
+			   ].
 
 start(Options) ->
 	error_logger:logfile({open, "wstest.log"}),
 	log(info, "Options=~p~n", [Options]),
 	register(dispatcher, spawn_link(fun dispatcher/0)),
+	register(anim, spawn(fun() -> frame({0, [{256,256} || _ <- lists:seq(1,100)], 200}) end)),
 	mochiweb_http:start([{name, wstest_web}, {loop, fun handler/1} | Options]).
 
 stop() ->
@@ -19,27 +25,63 @@ log(info, Format, Data) -> error_logger:info_msg(Format, Data);
 log(warn, Format, Data) -> error_logger:warning_msg(Format, Data);
 log(_, Format, Data) -> error_logger:error_msg(Format, Data).
 
-start_greet() -> spawn(fun() -> greet("Ciao!", 200) end).
-
-greet(Message, Timeout) ->
+frame({Counter, Points, Timeout}) ->
+	broadcast_points(Points),
 	receive
-		Newmessage -> greet(Newmessage, Timeout)
+		{add, Point} ->
+			{NewCounter, NewPoints, NewTimeout} = {Counter, [Point | Points], Timeout};
+		{timeout, NewTimeout} ->
+			{NewCounter, NewPoints} = {Counter, Points};
+		die -> 
+			{NewCounter, NewPoints, NewTimeout} = {Counter, Points, Timeout},
+			exit(normal)
 	after Timeout ->
-		dispatcher ! {broadcast, Message},
-		greet(Message, Timeout)
-	end.
+		{NewCounter, NewTimeout} = {Counter + 1, Timeout},
+		NewPoints = [{
+					  X + random:uniform(5) - 3, 
+					  Y + random:uniform(5) - 3
+					  } || {X, Y} <- Points, X >=0, Y >=0, X < 512, Y < 512 ]
+	end,
+	frame({NewCounter, NewPoints, NewTimeout}).
 
 dispatcher() ->
 	dispatcher([], 0).
 
+broadcast(Message) ->
+	dispatcher ! {broadcast, Message}.
+
 dispatcher(Handlers, Counter) ->
-	log(info, "Dispatcher invoked~n~n"),
+	process_flag(trap_exit, true),
 	receive
-		{broadcast, Message} -> broadcast(Handlers, io_lib:format("~s~p\n", [Message, Counter])), dispatcher(Handlers, Counter + 1);
-		{addhandler, Handler} -> dispatcher([Handler|Handlers], Counter);
-		{removehandler, Handler} -> dispatcher(Handlers -- [Handler], Counter);
-		_ -> dispatcher(Handlers, Counter)
-	end.
+		{broadcast, Message} ->
+			broadcast(Handlers, io_lib:format("~s\n", [Message])),
+			{NewHandlers, NewCounter} = {Handlers, Counter + 1};
+		{addhandler, Handler} ->
+			link(Handler),
+			{NewHandlers, NewCounter} = {[Handler|Handlers], Counter},
+			log(info, "Adding: ~p,~p~n", [Handler, NewHandlers]);
+		{removehandler, Handler} ->
+			{NewHandlers, NewCounter} = {Handlers -- [Handler], Counter},
+			log(info, "Removing: ~p,~p~n", [Handler, NewHandlers]);
+		{'EXIT',Handler,Reason} ->
+			{NewHandlers, NewCounter} = {Handlers -- [Handler], Counter},
+			log(info, "Terminated: ~p,~p,~p~n", [Handler, NewHandlers, Reason]);
+		_ ->
+			{NewHandlers, NewCounter} = {Handlers, Counter}
+	end,
+	dispatcher(NewHandlers, NewCounter).
+
+broadcast_points(PtsList) ->
+	broadcast(io_lib:format("[~s]", [points_to_string(PtsList)])).
+
+points_to_string([{X, Y} | PtsList]) ->
+	io_lib:format("{\"x\": ~p, \"y\": ~p}", [X, Y]) ++ 
+	case PtsList of
+		[] -> "";
+		_ -> "," ++ points_to_string(PtsList)
+	end;
+points_to_string([]) ->
+	[].
 
 broadcast([Handler | Handlers], Message) ->
 	try Handler ! {echo, Message} of
@@ -52,25 +94,25 @@ broadcast([], _) ->
 	ok.
 
 send_chunks(Req, Resp, Tail) ->
-	log(info, "Adding: ~p~n", [self()]),
 	dispatcher ! {addhandler, self()},
-	send_chunks(Req, Resp, Tail, 100),
+	send_chunks(Req, Resp, Tail, 65535),
 	Resp.
 
-send_chunks(_Req, Resp, Tail, 0) ->
+send_chunks(_, Resp, Tail, 0) ->
 	send_event(Resp, 'end', Tail),
 	Resp:write_chunk(<<>>),
 	dispatcher ! {removehandler, self()},
-	log(info, "Removing: ~p~n", [self()]);
+	ok;
 send_chunks(Req, Resp, Tail, Count) ->
 	receive
 		{echo, Message} -> send_event(Resp, data, Message)
 	end,
-	send_chunks(Req, Resp, Tail, Count -1).
+	send_chunks(Req, Resp, Tail, Count - 1).
 
 receive_chunks(Req) ->
 	Req:stream_body(1024, fun receive_chunks/2, []).
-
+receive_chunks({0, Bin}, State) ->
+	[Bin | State];
 receive_chunks({_Size, Bin}, State) ->
 	dispatcher ! {broadcast, Bin},
 	[Bin | State].
@@ -80,10 +122,15 @@ send_event(Resp, Type, Message) ->
   
 process(Req, _, _, 'GET', "feed") ->
 	Resp = Req:ok({"text/event-stream", [], chunked}),
-	send_event(Resp, data, "Hello!"),
-	send_chunks(Req, Resp, "Bye\n");
-process(Req, _, _, 'POST', "test") ->
+	send_event(Resp, data, "[]"),
+	send_chunks(Req, Resp, "[]");
+process(Req, _, _, 'POST', "feed") ->
 	receive_chunks(Req),
+	Req:ok({"text/plain", "Sent"});
+process(Req, json, _, 'POST', "add") ->
+	Point = mochijson2:decode(Req:recv_body()),
+	{struct, [{_, X}, {_, Y}]} = Point,
+	anim ! {add, {X, Y}},
 	Req:ok({"text/plain", "Sent"});
 process(Req, _, _, 'GET', Page) ->
 	case file:read_file(Page) of
@@ -118,8 +165,8 @@ consumes(GotMimeType, [{MimeType, ContentType} | T]) ->
 
 handler(Req) ->
 	"/" ++ Path = Req:get(path),
-	log(info, "Path=~p, Req=~p~n", [Path, Req]),
+	log(info, "Path=~p~n", [Path]),
 	Consumes = consumes(Req),
 	Produces = produces(Req),
 	Method = Req:get(method),
-	?MODULE:process(Req, Consumes, Produces, Method, Path).
+	process(Req, Consumes, Produces, Method, Path).
