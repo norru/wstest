@@ -28,6 +28,8 @@ log(_, Format, Data) -> error_logger:error_msg(Format, Data).
 frame({Counter, Points, Timeout}) ->
 	broadcast_points(Points),
 	receive
+		clear ->
+			{NewCounter, NewPoints, NewTimeout} = {Counter, [], Timeout};
 		{add, Point} ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, [Point | Points], Timeout};
 		{timeout, NewTimeout} ->
