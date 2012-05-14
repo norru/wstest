@@ -26,7 +26,8 @@
 				var map = document.getElementById("map");  
  				var ctx = map.getContext("2d");  
 				var mapDown = false;
- 				
+ 				var points = [];
+				
  				function relMouseCoords(currentElement, event){
  				    var totalOffsetX = 0;
  				    var totalOffsetY = 0;
@@ -45,27 +46,30 @@
  				    return {x:canvasX, y:canvasY}
  				}
  				
- 				map.addEventListener("mousedown", function(e) { addPoint(relMouseCoords(map, e)); mapDown = true; }, false) 
- 				map.addEventListener("mouseup", function(e) { mapDown = false; }, false) 
+ 				map.addEventListener("mousedown", function(e) { points = []; addPoint(points, relMouseCoords(map, e)); mapDown = true; }, false) 
+ 				map.addEventListener("mouseup", function(e) { mapDown = false; sendPoints(points); points = []; }, false) 
+ 				map.addEventListener('mousemove', function(e) {if (mapDown) {addPoint(points, relMouseCoords(map, e));}}, false);
  				
- 				function addPoint(point) {
- 					drawPoint(point, '#777');
+ 				function sendPoints(points) {
  					var xmlHttp = new XMLHttpRequest();
- 					xmlHttp.open("POST", "add", true);
- 					xmlHttp.setRequestHeader("Content-Type", "application/json");
- 					xmlHttp.send(JSON.stringify(point)); 					
+ 					if (points && points.length) {
+	 					xmlHttp.open("POST", "add", true);
+	 					xmlHttp.setRequestHeader("Content-Type", "application/json");
+	 					xmlHttp.send(JSON.stringify(points));
+	 				}
  				}
  				
- 				map.addEventListener('mousemove', function(e) {
- 					if (mapDown) {
-	 					addPoint(relMouseCoords(map, e));
- 					}
-				}, false);
- 				
+ 				function addPoint(points, point) {
+ 					drawPoint(point, '#77f');
+ 					points.push(point);
+ 				}
+ 				 				
 				source.addEventListener('message', function(e) {
-		  			var points = JSON.parse(e.data);
-		  			document.getElementById("messagebar").innerHTML = points.length + " points";
-		  			drawPoints(points);
+		  			var inPoints = JSON.parse(e.data);
+		  			document.getElementById("messagebar").innerHTML = inPoints.length + " points";
+					clear();
+					drawPoints(points, "#444");
+					drawPoints(inPoints, '#000');
 				}, false);
 				
 				source.addEventListener('open', function(e) {
@@ -88,10 +92,9 @@
 					ctx.restore();
 				}
 				
-				function drawPoints(points) {
-					clear();
+				function drawPoints(points, style) {
 					points.forEach(function(point){
-						drawPoint(point, '#000');
+						drawPoint(point, style);
 					});
 				}
 		    </script>

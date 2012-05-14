@@ -25,6 +25,9 @@ log(info, Format, Data) -> error_logger:info_msg(Format, Data);
 log(warn, Format, Data) -> error_logger:warning_msg(Format, Data);
 log(_, Format, Data) -> error_logger:error_msg(Format, Data).
 
+point_transform(X, Y) ->
+	{X + random:uniform(5) - 3, Y + random:uniform(5) - 3}.
+
 frame({Counter, Points, Timeout}) ->
 	broadcast_points(Points),
 	receive
@@ -32,6 +35,8 @@ frame({Counter, Points, Timeout}) ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, [], Timeout};
 		{add, Point} ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, [Point | Points], Timeout};
+		{addmany, ManyPoints} ->
+			{NewCounter, NewPoints, NewTimeout} = {Counter, ManyPoints ++ Points, Timeout};
 		{timeout, NewTimeout} ->
 			{NewCounter, NewPoints} = {Counter, Points};
 		die -> 
@@ -39,10 +44,7 @@ frame({Counter, Points, Timeout}) ->
 			exit(normal)
 	after Timeout ->
 		{NewCounter, NewTimeout} = {Counter + 1, Timeout},
-		NewPoints = [{
-					  X + random:uniform(5) - 3, 
-					  Y + random:uniform(5) - 3
-					  } || {X, Y} <- Points, X >=0, Y >=0, X < 512, Y < 512 ]
+		NewPoints = [point_transform(X, Y) || {X, Y} <- Points, X >=0, Y >=0, X < 512, Y < 512 ]
 	end,
 	frame({NewCounter, NewPoints, NewTimeout}).
 
@@ -130,9 +132,8 @@ process(Req, _, _, 'POST', "feed") ->
 	receive_chunks(Req),
 	Req:ok({"text/plain", "Sent"});
 process(Req, json, _, 'POST', "add") ->
-	Point = mochijson2:decode(Req:recv_body()),
-	{struct, [{_, X}, {_, Y}]} = Point,
-	anim ! {add, {X, Y}},
+	Points = mochijson2:decode(Req:recv_body()),
+	anim ! {addmany, [ {X, Y} || {struct, [{_, X}, {_, Y}]} <- Points] },
 	Req:ok({"text/plain", "Sent"});
 process(Req, _, _, 'GET', Page) ->
 	case file:read_file(Page) of
