@@ -1,5 +1,5 @@
 -module(wstest_web).
--export([start/1, stop/0]).
+-export([start/1, stop/0, dispatcher/0, repeater/1]).
 
 mime_types() ->[
 				{"text/plain", text},
@@ -12,8 +12,9 @@ mime_types() ->[
 start(Options) ->
 	error_logger:logfile({open, "wstest.log"}),
 	log(info, "Options=~p~n", [Options]),
-	register(dispatcher, spawn_link(fun dispatcher/0)),
-	register(anim, spawn(fun() -> frame({0, [{256,256} || _ <- lists:seq(1,100)], 200}) end)),
+	register(dispatcher, spawn_link(?MODULE, dispatcher, [])),
+	register(frame, spawn(fun() -> frame({0, [], 200}) end)),
+	register(repeater, spawn_link(?MODULE, repeater, [8002])),
 	mochiweb_http:start([{name, wstest_web}, {loop, fun handler/1} | Options]).
 
 stop() ->
@@ -25,26 +26,53 @@ log(info, Format, Data) -> error_logger:info_msg(Format, Data);
 log(warn, Format, Data) -> error_logger:warning_msg(Format, Data);
 log(_, Format, Data) -> error_logger:error_msg(Format, Data).
 
-point_transform(X, Y) ->
-	{X + random:uniform(5) - 3, Y + random:uniform(5) - 3}.
+repeater(Port) ->
+    case gen_tcp:listen(Port, [binary, {packet, line}, {active, false}, {buffer, 4096}]) of
+		{ok, ListenSocket} ->
+			repeater_accept(ListenSocket);
+		{error, Reason} ->
+			log(error, "Socket error", Reason),
+			exit(Reason)
+	end.
+			
+repeater_accept(ListenSocket) ->
+    case gen_tcp:accept(ListenSocket) of
+	    {ok, Socket} ->
+	        spawn(fun() -> repeater_loop(Socket) end);
+	    AcceptResult ->
+			log(error, "Socket error", AcceptResult)
+    end,
+	repeater_accept(ListenSocket).
+ 
+repeater_loop(Socket) ->
+	case gen_tcp:recv(Socket, 0) of
+	{ok, Packet} ->
+		frame ! {set, json2points(Packet)},
+		repeater_loop(Socket);
+	{error, closed} ->
+		ok;
+	Other ->
+		exit(Other)
+	end.
 
 frame({Counter, Points, Timeout}) ->
 	broadcast_points(Points),
 	receive
 		clear ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, [], Timeout};
+		{set, NewPoints} ->
+			{NewCounter, NewTimeout} = {Counter, Timeout};
 		{add, Point} ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, [Point | Points], Timeout};
 		{addmany, ManyPoints} ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, ManyPoints ++ Points, Timeout};
 		{timeout, NewTimeout} ->
 			{NewCounter, NewPoints} = {Counter, Points};
+		refresh ->
+			{NewCounter, NewPoints, NewTimeout} = {Counter, Points, Timeout};
 		die -> 
 			{NewCounter, NewPoints, NewTimeout} = {Counter, Points, Timeout},
 			exit(normal)
-	after Timeout ->
-		{NewCounter, NewTimeout} = {Counter + 1, Timeout},
-		NewPoints = [point_transform(X, Y) || {X, Y} <- Points, X >=0, Y >=0, X < 512, Y < 512 ]
 	end,
 	frame({NewCounter, NewPoints, NewTimeout}).
 
@@ -67,7 +95,7 @@ dispatcher(Handlers, Counter) ->
 		{removehandler, Handler} ->
 			{NewHandlers, NewCounter} = {Handlers -- [Handler], Counter},
 			log(info, "Removing: ~p,~p~n", [Handler, NewHandlers]);
-		{'EXIT',Handler,Reason} ->
+		{'EXIT', Handler, Reason} ->
 			{NewHandlers, NewCounter} = {Handlers -- [Handler], Counter},
 			log(info, "Terminated: ~p,~p,~p~n", [Handler, NewHandlers, Reason]);
 		_ ->
@@ -99,6 +127,7 @@ broadcast([], _) ->
 
 send_chunks(Req, Resp, Tail) ->
 	dispatcher ! {addhandler, self()},
+	frame ! ping,
 	send_chunks(Req, Resp, Tail, 65535),
 	Resp.
 
@@ -124,16 +153,17 @@ receive_chunks({_Size, Bin}, State) ->
 send_event(Resp, Type, Message) ->
 	Resp:write_chunk(io_lib:format("~p: ~s~n~n", [Type, Message])).
   
+json2points(Body) ->
+	[ {X, Y} || {struct, [{_, X}, {_, Y}]} <- mochijson2:decode(Body)].
+
 process(Req, _, _, 'GET', "feed") ->
 	Resp = Req:ok({"text/event-stream", [], chunked}),
-	send_event(Resp, data, "[]"),
 	send_chunks(Req, Resp, "[]");
 process(Req, _, _, 'POST', "feed") ->
 	receive_chunks(Req),
 	Req:ok({"text/plain", "Sent"});
 process(Req, json, _, 'POST', "add") ->
-	Points = mochijson2:decode(Req:recv_body()),
-	anim ! {addmany, [ {X, Y} || {struct, [{_, X}, {_, Y}]} <- Points] },
+	frame ! {addmany, json2points(Req:recv_body())},
 	Req:ok({"text/plain", "Sent"});
 process(Req, _, _, 'GET', Page) ->
 	case file:read_file(Page) of

@@ -11,7 +11,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-	MochiOptions = [{ip, "0.0.0.0"}, {port, 8001}],
+	MochiOptions = [{ip, "0.0.0.0"}, {port, 8001}, {nodelay, true}],
 	
     Mochionly = {
 		wstest_web,
