@@ -13,10 +13,27 @@ start_link() ->
 init([]) ->
 	MochiOptions = [{ip, "0.0.0.0"}, {port, 8001}, {nodelay, true}],
 	
-    Mochionly = {
-		wstest_web,
-		{wstest_web, start, [MochiOptions]},
+	error_logger:logfile({open, "wstest.log"}),
+	error_logger:info_msg("Options=~p~n", [MochiOptions]),
+	
+    MochiwebChild = {
+		mochiweb,
+		{wstest_web, start_mochiweb, [MochiOptions]},
 		permanent, 5000, worker, [wstest_web]
 	},
-	
-    {ok, {{one_for_one, 5, 10}, [Mochionly]}}.
+	DispatcherChild = {
+		dispatcher,
+		{wstest_web, start_dispatcher, []},
+		permanent, 5000, worker, [wstest_web]
+	},
+	FrameChild = {
+		frame,
+		{wstest_web, start_frame, []},
+		permanent, 5000, worker, [wstest_web]
+	},
+	RepeaterChild = {
+		repeater,
+		{wstest_web, start_repeater, []},
+		permanent, 5000, worker, [wstest_web]
+	},
+    {ok, {{one_for_one, 5, 10}, [DispatcherChild, FrameChild, RepeaterChild, MochiwebChild]}}.

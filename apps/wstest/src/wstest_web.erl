@@ -1,5 +1,6 @@
 -module(wstest_web).
--export([start/1, stop/0, dispatcher/0, repeater/1]).
+-export([start/1, stop/0, dispatcher/0, repeater/1, frame/1, 
+		 start_dispatcher/0, start_frame/0, start_repeater/0,start_mochiweb/1]).
 
 mime_types() ->[
 				{"text/plain", text},
@@ -10,11 +11,21 @@ mime_types() ->[
 			   ].
 
 start(Options) ->
-	error_logger:logfile({open, "wstest.log"}),
-	log(info, "Options=~p~n", [Options]),
-	register(dispatcher, spawn_link(?MODULE, dispatcher, [])),
-	register(frame, spawn(fun() -> frame({0, [], 200}) end)),
-	register(repeater, spawn_link(?MODULE, repeater, [8002])),
+	start_dispatcher(),
+	start_frame(),
+	start_repeater(),
+	start_mochiweb(Options).
+
+auto_register(Name, Args) ->
+	Pid = spawn_link(?MODULE, Name, Args),
+	register(Name, Pid),
+	{ok, Pid}.
+  
+start_dispatcher() -> auto_register(dispatcher, []).
+start_frame() -> auto_register(frame, [{0, [], 200}]).
+start_repeater() -> auto_register(repeater, [8002]).
+
+start_mochiweb(Options) ->
 	mochiweb_http:start([{name, wstest_web}, {loop, fun handler/1} | Options]).
 
 stop() ->
@@ -107,7 +118,7 @@ broadcast_points(PtsList) ->
 	broadcast(io_lib:format("[~s]", [points_to_string(PtsList)])).
 
 points_to_string([{X, Y} | PtsList]) ->
-	io_lib:format("{\"x\": ~p, \"y\": ~p}", [X, Y]) ++ 
+	io_lib:format("[~p,~p]", [X, Y]) ++ 
 	case PtsList of
 		[] -> "";
 		_ -> "," ++ points_to_string(PtsList)
@@ -127,7 +138,7 @@ broadcast([], _) ->
 
 send_chunks(Req, Resp, Tail) ->
 	dispatcher ! {addhandler, self()},
-	frame ! ping,
+	frame ! refresh,
 	send_chunks(Req, Resp, Tail, 65535),
 	Resp.
 
@@ -154,7 +165,7 @@ send_event(Resp, Type, Message) ->
 	Resp:write_chunk(io_lib:format("~p: ~s~n~n", [Type, Message])).
   
 json2points(Body) ->
-	[ {X, Y} || {struct, [{_, X}, {_, Y}]} <- mochijson2:decode(Body)].
+	[ {X, Y} || [X, Y] <- mochijson2:decode(Body)].
 
 process(Req, _, _, 'GET', "feed") ->
 	Resp = Req:ok({"text/event-stream", [], chunked}),
@@ -166,7 +177,7 @@ process(Req, json, _, 'POST', "add") ->
 	frame ! {addmany, json2points(Req:recv_body())},
 	Req:ok({"text/plain", "Sent"});
 process(Req, _, _, 'GET', Page) ->
-	case file:read_file(Page) of
+	case file:read_file("../../apps/wstest/src/" ++ Page) of
 		{ok,FileBin} ->
 			Req:ok({"text/html", [{"Content-Disposition", "inline"}], FileBin});
 		_ ->
@@ -198,7 +209,6 @@ consumes(GotMimeType, [{MimeType, ContentType} | T]) ->
 
 handler(Req) ->
 	"/" ++ Path = Req:get(path),
-	log(info, "Path=~p~n", [Path]),
 	Consumes = consumes(Req),
 	Produces = produces(Req),
 	Method = Req:get(method),

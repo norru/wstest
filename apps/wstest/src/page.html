@@ -43,7 +43,7 @@
  				    canvasX = event.pageX - totalOffsetX;
  				    canvasY = event.pageY - totalOffsetY;
 
- 				    return {x:canvasX, y:canvasY}
+ 				    return [canvasX, canvasY]
  				}
  				
  				map.addEventListener("mousedown", function(e) { points = []; addPoint(points, relMouseCoords(map, e)); mapDown = true; }, false) 
@@ -87,7 +87,7 @@
 				function drawPoint(point, strokeStyle) {
 					ctx.strokeStyle = strokeStyle;
 					ctx.save();
-					ctx.translate(point.x, point.y);
+					ctx.translate(point[0], point[1]);
 					ctx.strokeRect(-2, -2, 2, 2);
 					ctx.restore();
 				}
