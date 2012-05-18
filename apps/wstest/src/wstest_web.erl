@@ -49,22 +49,42 @@ repeater(Port) ->
 repeater_accept(ListenSocket) ->
     case gen_tcp:accept(ListenSocket) of
 	    {ok, Socket} ->
-	        spawn(fun() -> repeater_loop(Socket) end);
+			ChatPid=spawn(fun() -> repeater_downstream_loop(Socket) end),
+			register(chat, ChatPid),
+	        spawn(fun() -> repeater_upstream_loop(Socket) end);
 	    AcceptResult ->
 			log(error, "Socket error", AcceptResult)
     end,
 	repeater_accept(ListenSocket).
  
-repeater_loop(Socket) ->
+repeater_upstream_loop(Socket) ->
 	case gen_tcp:recv(Socket, 0) of
 	{ok, Packet} ->
 		frame ! {set, json2points(Packet)},
-		repeater_loop(Socket);
+		repeater_upstream_loop(Socket);
 	{error, closed} ->
 		ok;
 	Other ->
 		exit(Other)
 	end.
+
+send_chat_message(Socket, Recipient, Text) ->
+	Packet = [Recipient, ": ", Text, "\n"],
+	case gen_tcp:send(Socket, Packet) of
+		{error, closed} ->
+			ok;
+		Other ->
+			Other
+	end.
+
+repeater_downstream_loop(Socket) ->
+	receive
+		{chat, Recipient, Text} ->
+			send_chat_message(Socket, Recipient, Text);
+		Other ->
+			log(warn, "Unknown message: ~p", [Other])
+	end,
+	repeater_downstream_loop(Socket).
 
 frame({Counter, Points, Timeout}) ->
 	broadcast_points(Points),
@@ -97,7 +117,7 @@ dispatcher(Handlers, Counter) ->
 	process_flag(trap_exit, true),
 	receive
 		{broadcast, Message} ->
-			broadcast(Handlers, io_lib:format("~s\n", [Message])),
+			broadcast(Handlers, [Message, "\n"]),
 			{NewHandlers, NewCounter} = {Handlers, Counter + 1};
 		{addhandler, Handler} ->
 			link(Handler),
@@ -166,6 +186,10 @@ send_event(Resp, Type, Message) ->
   
 json2points(Body) ->
 	[ {X, Y} || [X, Y] <- mochijson2:decode(Body)].
+json2chat(Body) ->
+	Json = mochijson2:decode(Body),
+	[Recipient, Text] = Json,
+	{chat, Recipient, Text}. 
 
 process(Req, _, _, 'GET', "feed") ->
 	Resp = Req:ok({"text/event-stream", [], chunked}),
@@ -175,6 +199,9 @@ process(Req, _, _, 'POST', "feed") ->
 	Req:ok({"text/plain", "Sent"});
 process(Req, json, _, 'POST', "add") ->
 	frame ! {addmany, json2points(Req:recv_body())},
+	Req:ok({"text/plain", "Sent"});
+process(Req, json, _, 'POST', "chat") ->
+	chat ! json2chat(Req:recv_body()),
 	Req:ok({"text/plain", "Sent"});
 process(Req, _, _, 'GET', Page) ->
 	case file:read_file("../../apps/wstest/src/" ++ Page) of

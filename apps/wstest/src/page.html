@@ -13,18 +13,21 @@
 </head>
 <body>
     <div id="messages">
-        <div class="msg old">
-            Stream demo
-        </div>
+    	<div id="chat" class="msg">
+    		<form action="#" accept-charset="utf-8" id="sendForm"><input id="recipient" size="30"/><input id="text" size="50"/><input type="submit" id="sendButton" value="Go!"/></form>
+    	</div>
         <div id="messagebar" class="msg new">
             ...
         </div>
+        
         <canvas id="map" width="512" height="512"></canvas>  
         <div>
 		    <script type="text/javascript" charset="utf-8">
 				var source = new EventSource('feed');
 				var map = document.getElementById("map");  
  				var ctx = map.getContext("2d");  
+ 				var sendButton = document.getElementById("sendButton");
+ 				var sendForm = document.getElementById("sendForm");
 				var mapDown = false;
  				var points = [];
 				
@@ -50,15 +53,16 @@
  				map.addEventListener("mouseup", function(e) { mapDown = false; sendPoints(points); points = []; }, false) 
  				map.addEventListener('mousemove', function(e) {if (mapDown) {addPoint(points, relMouseCoords(map, e));}}, false);
  				
+ 				
  				function sendPoints(points) {
- 					var xmlHttp = new XMLHttpRequest();
  					if (points && points.length) {
+ 						var xmlHttp = new XMLHttpRequest();
 	 					xmlHttp.open("POST", "add", true);
 	 					xmlHttp.setRequestHeader("Content-Type", "application/json");
 	 					xmlHttp.send(JSON.stringify(points));
 	 				}
  				}
- 				
+ 				 				
  				function addPoint(points, point) {
  					drawPoint(point, '#77f');
  					points.push(point);
@@ -97,6 +101,22 @@
 						drawPoint(point, style);
 					});
 				}
+				
+ 				sendForm.addEventListener("submit", function(e) { 
+ 						sendChatMessage(document.getElementById("recipient").value, document.getElementById("text").value); 
+ 					}, false)
+ 				
+ 				function sendChatMessage(recipient, text) {
+ 					if (recipient && text) {
+ 						chatMessage = [recipient, text];
+ 						var xmlHttp = new XMLHttpRequest();
+	 					xmlHttp.open("POST", "chat", true);
+	 					xmlHttp.setRequestHeader("Content-Type", "application/json");
+	 					xmlHttp.send(JSON.stringify(chatMessage));
+	 				}
+ 				}
+
+ 				
 		    </script>
 	    </div>
     </body>
