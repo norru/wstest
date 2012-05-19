@@ -38,7 +38,7 @@ log(warn, Format, Data) -> error_logger:warning_msg(Format, Data);
 log(_, Format, Data) -> error_logger:error_msg(Format, Data).
 
 repeater(Port) ->
-    case gen_tcp:listen(Port, [binary, {packet, line}, {active, false}, {buffer, 4096}]) of
+    case gen_tcp:listen(Port, [binary, {packet, line}, {active, false}, {buffer, 10 * 1024}]) of
 		{ok, ListenSocket} ->
 			repeater_accept(ListenSocket);
 		{error, Reason} ->
@@ -50,6 +50,10 @@ repeater_accept(ListenSocket) ->
     case gen_tcp:accept(ListenSocket) of
 	    {ok, Socket} ->
 			ChatPid=spawn(fun() -> repeater_downstream_loop(Socket) end),
+			case whereis(chat) of
+				undefined -> ok;
+				_ -> unregister(chat)
+			end,
 			register(chat, ChatPid),
 	        spawn(fun() -> repeater_upstream_loop(Socket) end);
 	    AcceptResult ->
