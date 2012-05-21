@@ -30,6 +30,7 @@
  				var sendForm = document.getElementById("sendForm");
 				var mapDown = false;
  				var points = [];
+ 				var oldPoints = [];
 				
  				function relMouseCoords(currentElement, event){
  				    var totalOffsetX = 0;
@@ -73,7 +74,7 @@
 		  			document.getElementById("messagebar").innerHTML = inPoints.length + " points";
 					clear();
 					drawPoints(points, "#444");
-					drawPoints(inPoints, '#000');
+					drawPoints(inPoints, '#fff');
 				}, false);
 				
 				source.addEventListener('open', function(e) {
@@ -84,7 +85,7 @@
 				}, false);
 				
 				function clear() {
-					ctx.fillStyle = '#fff';
+					ctx.fillStyle = '#000';
 					ctx.fillRect (0, 0, map.width, map.height);
 				}
 				

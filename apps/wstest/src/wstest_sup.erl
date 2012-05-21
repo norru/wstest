@@ -26,6 +26,11 @@ init([]) ->
 		{wstest_web, start_dispatcher, []},
 		permanent, 5000, worker, [wstest_web]
 	},
+	HostChild = {
+		host,
+		{wstest_web, start_host, []},
+		permanent, 5000, worker, [wstest_web]
+	},
 	FrameChild = {
 		frame,
 		{wstest_web, start_frame, []},
@@ -36,4 +41,4 @@ init([]) ->
 		{wstest_web, start_repeater, []},
 		permanent, 5000, worker, [wstest_web]
 	},
-    {ok, {{one_for_one, 5, 10}, [DispatcherChild, FrameChild, RepeaterChild, MochiwebChild]}}.
+    {ok, {{one_for_one, 5, 10}, [DispatcherChild, HostChild, FrameChild, RepeaterChild, MochiwebChild]}}.

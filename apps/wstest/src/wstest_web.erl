@@ -1,6 +1,6 @@
 -module(wstest_web).
--export([start/1, stop/0, dispatcher/0, repeater/1, frame/1, 
-		 start_dispatcher/0, start_frame/0, start_repeater/0,start_mochiweb/1]).
+-export([dispatcher/2, repeater/1, repeater_accept/1, frame/1, host/1,
+		 start_dispatcher/0, start_frame/0, start_repeater/0, start_host/0,start_mochiweb/1]).
 
 mime_types() ->[
 				{"text/plain", text},
@@ -10,29 +10,19 @@ mime_types() ->[
 				{"text/html", html}
 			   ].
 
-start(Options) ->
-	start_dispatcher(),
-	start_frame(),
-	start_repeater(),
-	start_mochiweb(Options).
-
 auto_register(Name, Args) ->
 	Pid = spawn_link(?MODULE, Name, Args),
 	register(Name, Pid),
 	{ok, Pid}.
   
-start_dispatcher() -> auto_register(dispatcher, []).
+start_dispatcher() -> auto_register(dispatcher, [[], 0]).
 start_frame() -> auto_register(frame, [{0, [], 200}]).
 start_repeater() -> auto_register(repeater, [8002]).
+start_host() -> auto_register(host, [undefined]).
 
 start_mochiweb(Options) ->
 	mochiweb_http:start([{name, wstest_web}, {loop, fun handler/1} | Options]).
 
-stop() ->
-	log(info, "Stop!~n"),
-	mochiweb_http:stop(wstest_web).
-
-log(Level, Format) -> log(Level, Format, []).
 log(info, Format, Data) -> error_logger:info_msg(Format, Data);
 log(warn, Format, Data) -> error_logger:warning_msg(Format, Data);
 log(_, Format, Data) -> error_logger:error_msg(Format, Data).
@@ -49,29 +39,42 @@ repeater(Port) ->
 repeater_accept(ListenSocket) ->
     case gen_tcp:accept(ListenSocket) of
 	    {ok, Socket} ->
-			ChatPid=spawn(fun() -> repeater_downstream_loop(Socket) end),
-			case whereis(chat) of
-				undefined -> ok;
-				_ -> unregister(chat)
-			end,
-			register(chat, ChatPid),
-	        spawn(fun() -> repeater_upstream_loop(Socket) end);
+			%% last wins!
+			host ! {init, Socket};
 	    AcceptResult ->
 			log(error, "Socket error", AcceptResult)
     end,
-	repeater_accept(ListenSocket).
- 
-repeater_upstream_loop(Socket) ->
+	?MODULE:repeater_accept(ListenSocket).
+
+host(Socket) ->
+	receive
+		{init, NewSocket} ->
+			spawn_link(fun() -> feed(NewSocket) end);
+		{chat, Recipient, Text} ->
+			send_chat_message(Socket, Recipient, Text),
+			NewSocket = Socket;
+		{click, Points} ->
+			send_chat_message(Socket, "@onclick", points_to_string(Points)),
+			NewSocket = Socket;
+		Other ->
+			log(warn, "Unknown message: ~p", [Other]),
+			NewSocket = Socket
+	end,
+	?MODULE:host(NewSocket).
+
+feed(Socket) ->
 	case gen_tcp:recv(Socket, 0) of
 	{ok, Packet} ->
 		frame ! {set, json2points(Packet)},
-		repeater_upstream_loop(Socket);
+		feed(Socket);
 	{error, closed} ->
 		ok;
 	Other ->
 		exit(Other)
 	end.
 
+send_chat_message(undefined, Recipient, Text) ->
+	log(error, "Chat not established, dropping ~s: ~s", [Recipient, Text]);
 send_chat_message(Socket, Recipient, Text) ->
 	Packet = [Recipient, ": ", Text, "\n"],
 	case gen_tcp:send(Socket, Packet) of
@@ -81,14 +84,6 @@ send_chat_message(Socket, Recipient, Text) ->
 			Other
 	end.
 
-repeater_downstream_loop(Socket) ->
-	receive
-		{chat, Recipient, Text} ->
-			send_chat_message(Socket, Recipient, Text);
-		Other ->
-			log(warn, "Unknown message: ~p", [Other])
-	end,
-	repeater_downstream_loop(Socket).
 
 frame({Counter, Points, Timeout}) ->
 	broadcast_points(Points),
@@ -109,10 +104,7 @@ frame({Counter, Points, Timeout}) ->
 			{NewCounter, NewPoints, NewTimeout} = {Counter, Points, Timeout},
 			exit(normal)
 	end,
-	frame({NewCounter, NewPoints, NewTimeout}).
-
-dispatcher() ->
-	dispatcher([], 0).
+	?MODULE:frame({NewCounter, NewPoints, NewTimeout}).
 
 broadcast(Message) ->
 	dispatcher ! {broadcast, Message}.
@@ -136,7 +128,7 @@ dispatcher(Handlers, Counter) ->
 		_ ->
 			{NewHandlers, NewCounter} = {Handlers, Counter}
 	end,
-	dispatcher(NewHandlers, NewCounter).
+	?MODULE:dispatcher(NewHandlers, NewCounter).
 
 broadcast_points(PtsList) ->
 	broadcast(io_lib:format("[~s]", [points_to_string(PtsList)])).
@@ -203,6 +195,7 @@ process(Req, _, _, 'POST', "feed") ->
 	Req:ok({"text/plain", "Sent"});
 process(Req, json, _, 'POST', "add") ->
 	frame ! {addmany, json2points(Req:recv_body())},
+	host ! {click, json2points(Req:recv_body())},
 	Req:ok({"text/plain", "Sent"});
 process(Req, json, _, 'POST', "chat") ->
 	chat ! json2chat(Req:recv_body()),
